@@ -1,0 +1,47 @@
+version: 2.2
+pipelines:
+  - id: salesforce-to-webhook
+    status: running
+    description: >
+      This pipeline captures Salesforce changes via push topics, enriches them using Google Maps API through a webhook processor, and forwards the enhanced data to a webhook destination. It includes a dead-letter queue for robust error handling.
+    connectors:
+      - id: salesforce-in
+        type: source
+        plugin: standalone:salesforce
+        settings:
+          clientId: ""
+          clientSecret: ""
+          environment: ""
+          username: ""
+          password: ""
+          securityToken: ""
+          pushTopicsNames: ""
+      - id: webhook-sink
+        type: destination
+        plugin: standalone:http
+        settings:
+          url: ""
+    processors:
+      - id: fetch-google-geocode
+        plugin: "webhook.http"
+        settings:
+          backoffRetry.count: "0"
+          backoffRetry.factor: "2"
+          backoffRetry.max: "5s"
+          backoffRetry.min: "100ms"
+          request.body: ""
+          request.contentType: "application/json"
+          request.method: "GET"
+          request.url: "https://maps.googleapis.com/maps/api/geocode/json?address={{.Payload.After.BillingStreet | urlquery}},+{{.Payload.After.BillingCity | urlquery}},+{{.Payload.After.BillingState | urlquery}},+{{.Payload.After.BillingPostalCode | urlquery}},+{{.Payload.After.BillingCountry | urlquery}}&key={{YOUR_API_KEY}}"
+          response.body: ".Payload.After.enrichedAddress"
+          response.status: ".Metadata[\"http_status\"]"
+      - id: decode-json
+        plugin: json.decode
+        settings:
+          field: ".Payload.After.enrichedAddress"
+    dead-letter-queue:
+      plugin: "builtin:file"
+      settings:
+        path: "./dlq.out"
+      window-size: 2
+      window-nack-threshold: 1
